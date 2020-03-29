@@ -1,0 +1,15 @@
+<annotation>
+    <folder>test_images</folder>
+    <filename>image4.jpg</filename>
+    <path>C:\Users\arvind\Desktop\test_images\image4.jpg</path>
+    <source>
+        <database>Unknown</database>
+    </source>
+    <size>
+        <width>500</width>
+        <height>332</height>
+        <depth>3</depth>
+    </size>
+    <segmented>0</segmented>
+
+</annotation>
