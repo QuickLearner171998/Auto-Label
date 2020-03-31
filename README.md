@@ -1,6 +1,6 @@
 # Anno-Mage: A Semi Automatic Image Annotation Tool
 
-[Features and tutorial](https://drive.google.com/file/d/1C0a69yLDGIOLFKJQPNX1h6-XX9exU9V8/view?usp=sharing)
+[Demo](https://drive.google.com/file/d/1VVQd4-F7jDKblBsekHbHarIwn07GWlRx/view?usp=sharing)
 
 Semi Automatic Image Annotation Toolbox with tensorflow and keras object detection models.
 
