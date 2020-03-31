@@ -9,9 +9,7 @@ Copyright {2018} {Viraj Mavani}
 from tkinter import *
 from tkinter import filedialog
 from PIL import Image, ImageTk
-
 import keras
-
 from keras_retinanet import models
 from keras_retinanet.utils.image import preprocess_image
 
@@ -20,27 +18,28 @@ import os
 import numpy as np
 import tensorflow as tf
 import config
+import tf_config
 import math
 from pascal_voc_writer import Writer
 
-
-def get_session():
-    config = tf.ConfigProto()
-    config.gpu_options.allow_growth = True
-    return tf.Session(config=config)
-
-
-keras.backend.tensorflow_backend.set_session(get_session())
-
-model_path = os.path.join('.', 'snapshots', 'resnet50_coco_best_v2.1.0.h5')
-
-model = models.load_model(model_path, backbone_name='resnet50')
+# make sure the file is inside semi-auto-image-annotation-tool-master
+import pathlib
+cur_path = pathlib.Path(__file__).parent.absolute()
+# cur_path = r"semi-auto-image-annotation-tool-master"
+sys.path.append(cur_path)
+os.chdir(cur_path)
 
 
 class MainGUI:
     def __init__(self, master):
+
+        # to choose between keras or tensorflow models
+        self.kera = 1  # default
+        self.tensorf = 0
+        self.models_dir = ''  # gets updated as per user choice
+        self.model_path = ''
         self.parent = master
-        self.parent.title("Auto Label")
+        self.parent.title("Semi Automatic Image Annotation Tool")
         self.frame = Frame(self.parent)
         self.frame.pack(fill=BOTH, expand=1)
         self.parent.resizable(width=False, height=False)
@@ -79,6 +78,8 @@ class MainGUI:
         self.autoSuggest = StringVar()
         self.writer = None
         self.thresh = 0.5
+        self.org_h = 0
+        self.org_w = 0
         # initialize mouse state
         self.STATE = {'x': 0, 'y': 0}
         self.STATE_COCO = {'click': 0}
@@ -98,8 +99,7 @@ class MainGUI:
         self.openBtn.grid(columnspan=2, sticky=W + E)
         self.openDirBtn = Button(self.ctrlPanel, text='Open Dir', command=self.open_image_dir)
         self.openDirBtn.grid(columnspan=2, sticky = W + E)
-        # self.openVidBtn = Button(self.ctrlPanel, text='Open Video', command=self.open_video_file)
-        # self.openVidBtn.grid(columnspan=2, sticky=W + E)
+
         self.nextBtn = Button(self.ctrlPanel, text='Next -->', command=self.open_next)
         self.nextBtn.grid(columnspan=2, sticky=W + E)
         self.previousBtn = Button(self.ctrlPanel, text='<-- Previous', command=self.open_previous)
@@ -116,14 +116,25 @@ class MainGUI:
         self.semiAutoBtn.grid(columnspan=2, sticky=W + E)
         self.disp = Label(self.ctrlPanel, text='Coordinates:')
         self.disp.grid(columnspan=2, sticky=W + E)
+
         self.mb = Menubutton(self.ctrlPanel, text="COCO Classes for Suggestions", relief=RAISED)
         self.mb.grid(columnspan=2, sticky=W + E)
         self.mb.menu = Menu(self.mb, tearoff=0)
         self.mb["menu"] = self.mb.menu
+
         self.addCocoBtn = Button(self.ctrlPanel, text="+", command=self.add_labels_coco)
         self.addCocoBtn.grid(columnspan=2, sticky=W + E)
         self.addCocoBtnAllClasses = Button(self.ctrlPanel, text="Add All Classes", command=self.add_all_classes)
         self.addCocoBtnAllClasses.grid(columnspan=2, sticky=W + E)
+
+        # options to add different models
+        self.mb1 = Menubutton(self.ctrlPanel, text="Select models from here", relief=RAISED)
+        self.mb1.grid(columnspan=2, sticky=W + E)
+        self.mb1.menu = Menu(self.mb1, tearoff=0)
+        self.mb1["menu"] = self.mb1.menu
+
+        self.addModelBtn = Button(self.ctrlPanel, text="Add model", command=self.add_model)
+        self.addModelBtn.grid(columnspan=2, sticky=W + E)
 
         self.zoomPanelLabel = Label(self.ctrlPanel, text="Precision View Panel")
         self.zoomPanelLabel.grid(columnspan=2, sticky=W + E)
@@ -164,14 +175,21 @@ class MainGUI:
 
         self.labelListBox = Listbox(self.listPanel)
         self.labelListBox.pack(fill=X, side=TOP)
+        if self.kera:
+            self.cocoLabels = config.labels_to_names.values()
+        else:
+            self.cocoLabels = tf_config.labels_to_names.values()
 
-        self.cocoLabels = config.labels_to_names.values()
         self.cocoIntVars = []
-
         for idxcoco, label_coco in enumerate(self.cocoLabels):
             self.cocoIntVars.append(IntVar())
             self.mb.menu.add_checkbutton(label=label_coco, variable=self.cocoIntVars[idxcoco])
         # print(self.cocoIntVars)
+
+        self.modelIntVars = []
+        for idxmodel, modelname in enumerate(self.available_models()):
+            self.modelIntVars.append(IntVar())
+            self.mb1.menu.add_checkbutton(label=modelname, variable=self.modelIntVars[idxmodel])
 
         # STATUS BAR
         self.statusBar = Frame(self.frame, width=500)
@@ -181,13 +199,26 @@ class MainGUI:
         self.imageIdxLabel = Label(self.statusBar, text="                      ")
         self.imageIdxLabel.pack(side="right", fill=X)
 
+    def get_session(self):
+        config = tf.ConfigProto()
+        config.gpu_options.allow_growth = True
+        return tf.Session(config=config)
+
+    def available_models(self):
+        self.models_dir = os.path.join(cur_path, 'snapshots')
+        # only for keras and tf
+        model_categ = os.listdir(self.models_dir)
+        # creating all model options list
+        model_names = []
+        for categ in model_categ:
+            for name in os.listdir(os.path.join(self.models_dir , categ)):
+                model_names.append(os.path.join(categ,name))
+        return model_names
 
 
     def changeThresh(self):
         if(float(self.textBoxTh.get()) >0 and float(self.textBoxTh.get()) <1):
             self.thresh = float(self.textBoxTh.get())
-
-
 
     def open_image(self):
         self.filename = filedialog.askopenfilename(title="Select Image", filetypes=(("jpeg files", "*.jpg"),
@@ -217,6 +248,7 @@ class MainGUI:
         self.imageIdxLabel.config(text='  ||   Image Number: %d / %d' % (self.imageCur, self.imageTotal))
         # Resize to Pascal VOC format
         w, h = self.img.size
+        self.org_w, self.org_h = self.img.size
         if w >= h:
             baseW = 500
             wpercent = (baseW / float(w))
@@ -460,6 +492,24 @@ class MainGUI:
         labelidx = self.labelListBox.curselection()
         self.labelListBox.delete(labelidx)
 
+    def add_model(self):
+        for listidxmodel, list_model_name in enumerate(self.available_models()):
+            if(self.modelIntVars[listidxmodel].get()):
+                # check which model is it keras or tensorflow
+                self.model_path = os.path.join(self.models_dir,list_model_name)
+                # if its Tensorflow model then modify path
+                if('keras' in list_model_name):
+                    self.kera = 1
+                    self.tensorf = 0
+                elif('tensorflow' in list_model_name):
+                    self.model_path = os.path.join(self.model_path,'frozen_inference_graph.pb')
+                    self.kera = 0
+                    self.tensorf = 1
+                    # change cocoLabels corresponding to tensorflow
+                    self.cocoLabels = tf_config.labels_to_names.values()
+                break
+
+
     def add_labels_coco(self):
         for listidxcoco, list_label_coco in enumerate(self.cocoLabels):
             if self.cocoIntVars[listidxcoco].get():
@@ -481,24 +531,55 @@ class MainGUI:
         self.processingLabel.update_idletasks()
         open_cv_image = np.array(self.img)
         # Convert RGB to BGR
-        opencvImage= open_cv_image[:, :, ::-1].copy()
-        # opencvImage = cv2.cvtColor(np.array(self.img), cv2.COLOR_RGB2BGR)
-        # self.thresh = self.thresh
+        opencvImage = open_cv_image[:, :, ::-1].copy()
+        # if tensorflow
+        if self.tensorf :
+            detection_graph = tf.Graph()
+            with detection_graph.as_default():
+                od_graph_def = tf.GraphDef()
+                with tf.gfile.GFile(self.model_path, 'rb') as fid:
+                    serialized_graph = fid.read()
+                    od_graph_def.ParseFromString(serialized_graph)
+                    tf.import_graph_def(od_graph_def, name='')
 
+                sess = tf.Session(graph=detection_graph)
 
-        image = preprocess_image(opencvImage)
-        boxes, scores, labels = model.predict_on_batch(np.expand_dims(image, axis=0))
+            image_tensor = detection_graph.get_tensor_by_name('image_tensor:0')
+            detection_boxes = detection_graph.get_tensor_by_name('detection_boxes:0')
+            detection_scores = detection_graph.get_tensor_by_name('detection_scores:0')
+            detection_classes = detection_graph.get_tensor_by_name('detection_classes:0')
+            num_detections = detection_graph.get_tensor_by_name('num_detections:0')
+
+            image_expanded = np.expand_dims(opencvImage, axis=0)
+            (boxes, scores, labels, num) = sess.run(
+            [detection_boxes, detection_scores, detection_classes, num_detections],
+            feed_dict={image_tensor: image_expanded})
+            config_labels = tf_config.labels_to_names
+            m_name = os.path.split((os.path.split(self.model_path)[0]))[1]
+
+        else:
+            keras.backend.tensorflow_backend.set_session(self.get_session())
+            model_path = self.model_path
+            model = models.load_model(model_path, backbone_name='resnet50')
+            image = preprocess_image(opencvImage)
+            boxes, scores, labels = model.predict_on_batch(np.expand_dims(image, axis=0))
+            config_labels = config.labels_to_names
+            m_name = os.path.split(self.model_path)[1]
         for idx, (box, label, score) in enumerate(zip(boxes[0], labels[0], scores[0])):
             curr_label_list = self.labelListBox.get(0, END)
             curr_label_list = list(curr_label_list)
             if score < self.thresh:
                 continue
 
-            if config.labels_to_names[label] not in curr_label_list:
+            if config_labels[label] not in curr_label_list:
                 continue
 
-            b = box.astype(int)
-
+            b = box
+            # only if using tf models as keras and tensorflow have different coordinate order
+            if(self.tensorf):
+                w, h = self.img.size
+                (b[0],b[1],b[2],b[3]) = (b[1]*w, b[0]*h, b[3]*w, b[2]*h)
+            b = b.astype(int)
             self.bboxId = self.canvas.create_rectangle(b[0], b[1],
                                                        b[2], b[3],
                                                        width=2,
@@ -514,9 +595,10 @@ class MainGUI:
             self.bboxPointList.append(o4)
             self.bboxIdList.append(self.bboxId)
             self.bboxId = None
-            self.objectLabelList.append(str(config.labels_to_names[label]))
+            self.objectLabelList.append(str(config_labels[label]))
             self.objectListBox.insert(END, '(%d, %d) -> (%d, %d)' % (b[0], b[1], b[2], b[3]) + ': ' +
-                                      str(config.labels_to_names[label]))
+                                  str(config_labels[label])+' '+str(int(score*100))+'%'
+                                      +' '+ m_name)
             self.objectListBox.itemconfig(len(self.bboxIdList) - 1,
                                           fg=config.COLORS[(len(self.bboxIdList) - 1) % len(config.COLORS)])
         self.processingLabel.config(text="Done              ")
@@ -524,7 +606,7 @@ class MainGUI:
 
 if __name__ == '__main__':
     root = Tk()
-    imgicon = PhotoImage(file='icon.png')
+    imgicon = PhotoImage(file='icon.gif')
     root.tk.call('wm', 'iconphoto', root._w, imgicon)
     tool = MainGUI(root)
     root.mainloop()
